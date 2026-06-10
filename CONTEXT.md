@@ -21,12 +21,12 @@ An ephemeral TUI view that adds nothing to the transcript or model context; head
 _Avoid_: Triggering agent turns, persisting help output
 
 **Help Ask**:
-Words after the command name (`/help <name> <question>`) are an explicit opt-in to a real agent turn: the question, grounded in that command's documentation, is handed to the model. The question must be at least two words — a single stray token shows the detail view with a hint instead, so a typo or habit never silently costs a paid turn. An unresolvable name yields suggestions, never a turn; name collisions ground the agent in all matches.
+Words after the command name (`/help <name> <question>`) are an explicit opt-in to a real agent turn: the question, grounded in that command's documentation, is handed to the model. The question must be at least two words — a single stray token shows the detail view with a hint instead, so a typo or habit never silently costs a paid turn. An unresolvable name yields suggestions, never a turn; a literal registry-name match grounds the agent in that command alone (sibling hint stays out of the prompt), while genuine ties ground it in all matches.
 _Avoid_: Turns triggered by typos or stray words, silent winner-picking, answering from invented documentation
 
 **Name Resolution**:
-Query normalization strips `/` and `skill:`; exact matches across all sources are shown stacked on collision, then prefix/substring fallback, then bigram-based did-you-mean suggestions.
-_Avoid_: Silent winner-picking on name collisions
+Query normalization strips the leading `/` only; `skill:` is a source qualifier and part of the skill's registry name, never stripped. A query equal to a literal registry name resolves to exactly that command — `iterate` is the extension's literal name, `skill:iterate` the skill's — with a UI-only "also matches" hint for same-bare-name siblings it shadowed. Bare names with no literal match fall back to bare-name exact (stacked on ties), then prefix/substring over both name forms, then bigram-based did-you-mean suggestions. Autocomplete inserts the full registry name so a menu selection is always unambiguous.
+_Avoid_: Stripping source qualifiers, arbitrary winner-picking on genuine ties, leaking the sibling hint into model-visible prompts
 
 **List Filter**:
 Live, man-style narrowing of the Help Overlay list via `/`; membership is decided by case-insensitive substring over name and description, with a bigram typo-rescue on names only when substring finds nothing — so the list always stays explainable by the text typed. List overlay only; the detail view is a document, not a directory.

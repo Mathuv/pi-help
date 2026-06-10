@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
 	groupEntries,
 	resolveName,
+	formatRelatedHint,
 	stripFrontmatter,
 	extractHeaderComment,
 	filterEntries,
@@ -83,7 +84,7 @@ describe("resolveName", () => {
 		}
 	});
 
-	test("normalizes leading slash and skill: prefix", () => {
+	test("normalizes leading slash and whitespace; skill: qualifier resolves", () => {
 		for (const q of ["/commit", "skill:commit", "/skill:commit", "  commit "]) {
 			const r = resolveName(q, groups);
 			assert.equal(r.kind, "match", `query ${JSON.stringify(q)}`);
@@ -95,13 +96,41 @@ describe("resolveName", () => {
 		assert.equal(r.kind, "match");
 	});
 
-	test("collision returns all matching sources", () => {
+	test("literal registry name outranks bare-name collision, sibling goes to related", () => {
 		const withCollision = groupEntries([...SAMPLE, cmd("commit", "prompt", "Commit prompt", "/prompts/commit.md")]);
 		const r = resolveName("commit", withCollision);
 		assert.equal(r.kind, "match");
 		if (r.kind === "match") {
-			assert.equal(r.entries.length, 2);
-			assert.deepEqual(r.entries.map((e) => e.source).sort(), ["prompt", "skill"]);
+			assert.equal(r.entries.length, 1);
+			assert.equal(r.entries[0]?.source, "prompt");
+			assert.deepEqual(r.related?.map((e) => e.name), ["skill:commit"]);
+		}
+	});
+
+	test("skill: qualifier matches only the skill on collision", () => {
+		const withCollision = groupEntries([...SAMPLE, cmd("commit", "prompt", "Commit prompt", "/prompts/commit.md")]);
+		const r = resolveName("skill:commit", withCollision);
+		assert.equal(r.kind, "match");
+		if (r.kind === "match") {
+			assert.deepEqual(r.entries.map((e) => e.name), ["skill:commit"]);
+			assert.equal(r.related, undefined);
+		}
+	});
+
+	test("sole-source bare name resolves without related", () => {
+		const r = resolveName("commit", groups);
+		assert.equal(r.kind, "match");
+		if (r.kind === "match") {
+			assert.equal(r.entries[0]?.name, "skill:commit");
+			assert.equal(r.related, undefined);
+		}
+	});
+
+	test("skill: qualified prefix falls back on the full registry name", () => {
+		const r = resolveName("skill:summ", groups);
+		assert.equal(r.kind, "match");
+		if (r.kind === "match") {
+			assert.deepEqual(r.entries.map((e) => e.name), ["skill:summarize"]);
 		}
 	});
 
@@ -135,6 +164,27 @@ describe("resolveName", () => {
 		if (r.kind === "suggestions") {
 			assert.equal(r.names.length, 0);
 		}
+	});
+});
+
+describe("formatRelatedHint", () => {
+	const groups = groupEntries(SAMPLE);
+	const commit = groups.skills.find((e) => e.bareName === "commit")!;
+	const review = groups.extensions.find((e) => e.bareName === "review")!;
+
+	test("no related entries yields null", () => {
+		assert.equal(formatRelatedHint([]), null);
+		assert.equal(formatRelatedHint(undefined), null);
+	});
+
+	test("single related entry names its invocation and lookup query", () => {
+		assert.equal(formatRelatedHint([commit]), "also matches: /skill:commit — try /help skill:commit");
+	});
+
+	test("multiple related entries are all listed", () => {
+		const out = formatRelatedHint([commit, review]);
+		assert.match(out!, /\/skill:commit/);
+		assert.match(out!, /\/help review/);
 	});
 });
 

@@ -28,7 +28,7 @@ export interface HelpGroups {
 }
 
 export type Resolution =
-	| { kind: "match"; entries: HelpEntry[] }
+	| { kind: "match"; entries: HelpEntry[]; related?: HelpEntry[] }
 	| { kind: "suggestions"; query: string; names: string[] };
 
 const SKILL_PREFIX = "skill:";
@@ -60,10 +60,11 @@ export function allEntries(groups: HelpGroups): HelpEntry[] {
 	return [...groups.extensions, ...groups.prompts, ...groups.skills];
 }
 
+// `skill:` is a source qualifier, never stripped: it is part of the skill's
+// registry name and the only way to address a skill unambiguously.
 function normalizeQuery(query: string): string {
 	let q = query.trim().toLowerCase();
 	if (q.startsWith("/")) q = q.slice(1);
-	if (q.startsWith(SKILL_PREFIX)) q = q.slice(SKILL_PREFIX.length);
 	return q;
 }
 
@@ -71,13 +72,26 @@ export function resolveName(query: string, groups: HelpGroups): Resolution {
 	const q = normalizeQuery(query);
 	const entries = allEntries(groups);
 
-	const exact = entries.filter((e) => e.bareName.toLowerCase() === q || e.name.toLowerCase() === q);
+	// A literal registry name is unambiguous (skills are skill:-namespaced),
+	// so it outranks bare-name ties; excluded same-bare-name siblings are
+	// surfaced as `related` for a UI-only hint.
+	const literal = entries.filter((e) => e.name.toLowerCase() === q);
+	if (literal.length > 0) {
+		// A skill:-qualified query is explicit disambiguation — no hint needed.
+		// A bare query hitting a literal name may shadow siblings; surface them.
+		if (q.startsWith(SKILL_PREFIX)) return { kind: "match", entries: literal };
+		const bareNames = new Set(literal.map((e) => e.bareName.toLowerCase()));
+		const related = entries.filter((e) => !literal.includes(e) && bareNames.has(e.bareName.toLowerCase()));
+		return related.length > 0 ? { kind: "match", entries: literal, related } : { kind: "match", entries: literal };
+	}
+
+	const exact = entries.filter((e) => e.bareName.toLowerCase() === q);
 	if (exact.length > 0) return { kind: "match", entries: exact };
 
-	const prefix = entries.filter((e) => e.bareName.toLowerCase().startsWith(q));
+	const prefix = entries.filter((e) => e.bareName.toLowerCase().startsWith(q) || e.name.toLowerCase().startsWith(q));
 	if (prefix.length > 0) return { kind: "match", entries: prefix };
 
-	const substring = entries.filter((e) => e.bareName.toLowerCase().includes(q));
+	const substring = entries.filter((e) => e.bareName.toLowerCase().includes(q) || e.name.toLowerCase().includes(q));
 	if (substring.length > 0) return { kind: "match", entries: substring };
 
 	return {
@@ -294,6 +308,18 @@ export function buildAskPrompt(blocks: DetailBlock[], question: string, rawInput
 	lines.push("");
 	lines.push(`User's request: ${question}`);
 	return lines.join("\n");
+}
+
+/**
+ * UI-only hint for same-bare-name entries excluded by a literal registry-name
+ * match. Never goes into a model-visible prompt — Help Ask must stay grounded
+ * in exactly the resolved command's docs.
+ */
+export function formatRelatedHint(related: HelpEntry[] | undefined): string | null {
+	if (!related || related.length === 0) return null;
+	const names = related.map((e) => invocation(e)).join(", ");
+	const lookups = related.map((e) => `/help ${e.name}`).join(" or ");
+	return `also matches: ${names} — try ${lookups}`;
 }
 
 export function formatSuggestions(query: string, names: string[]): string {
