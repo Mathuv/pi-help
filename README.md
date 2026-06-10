@@ -6,6 +6,7 @@ Pi configs accumulate slash commands from many places: extensions you write, pac
 
 - **`/help`** — list every slash command in the current config, grouped by source, with one-line descriptions
 - **`/help <name>`** — full documentation for one command: usage, workflow, examples
+- **`/help <name> <question>`** — ask the agent anything about one command, grounded in its docs
 
 ## Install
 
@@ -59,6 +60,21 @@ What you see depends on where the command comes from:
 - **Skills & prompts** — the full markdown documentation (SKILL.md / prompt file body, frontmatter stripped), rendered with formatting
 - **Extension commands** — the registered description, plus the doc comment from the top of the extension source file when present
 
+### Ask the agent about a command
+
+```
+/help review onboard me with this command
+/help review give a quick walkthrough of the command
+```
+
+Add a question (two or more words) after the command name and `/help` hands it to the agent as a real LLM turn, with that command's documentation injected as context. The transcript shows a compact one-liner instead of the doc wall; the model sees the full docs.
+
+Unlike everything else `/help` does, this **does** trigger an agent turn (that's the point) — but never by accident:
+
+- a single stray word (`/help commit push`) shows the normal detail view plus a hint, no turn
+- an unresolvable name (`/help reviw onboard me`) shows did-you-mean suggestions, no turn
+- name collisions inject the docs of **all** matches and let the model disambiguate
+
 ### Keys (overlay)
 
 | Key | Action |
@@ -78,6 +94,12 @@ In non-interactive mode (`pi -p`, RPC), `/help` emits its output as a plain-text
 ```bash
 pi --mode json -p --no-session "/help"
 pi --mode json -p --no-session "/help commit"
+```
+
+The ask form behaves identically to interactive mode — it emits a `customType: "help-ask"` message and **does** trigger a turn, so it's scriptable:
+
+```bash
+pi --mode json -p --no-session "/help commit explain the workflow"
 ```
 
 ## What's NOT listed (by design)

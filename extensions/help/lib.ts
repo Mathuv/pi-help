@@ -252,6 +252,50 @@ export function formatDetail(matches: DetailBlock[]): string {
 	return blocks.join("\n\n────────────────────────────\n\n");
 }
 
+/** Split /help args into a name candidate (first token) and the Help Ask question (the rest). */
+export function splitAskArgs(args: string): { name: string; question: string } {
+	const trimmed = args.trim();
+	if (!trimmed) return { name: "", question: "" };
+	const space = trimmed.search(/\s/);
+	if (space === -1) return { name: trimmed, question: "" };
+	return { name: trimmed.slice(0, space), question: trimmed.slice(space).trim() };
+}
+
+/**
+ * A Help Ask question must be ≥2 words: a genuine request is virtually always
+ * multi-word, and one stray token must never trigger a paid agent turn.
+ */
+export function isAskQuestion(question: string): boolean {
+	return question.split(/\s+/).filter(Boolean).length >= 2;
+}
+
+/**
+ * Model-visible prompt for a Help Ask turn: the command's docs (same fallback
+ * chain as formatDetail) ground the agent before the user's request.
+ */
+export function buildAskPrompt(blocks: DetailBlock[], question: string, rawInput: string): string {
+	const lines: string[] = [];
+	lines.push(`The user ran \`/help ${rawInput}\`.`);
+	lines.push(
+		"Below is the documentation for the matching command in the current Pi config. " +
+			"Answer the question or perform the request about this command, using these docs as the primary source.",
+	);
+	if (blocks.length > 1) {
+		lines.push("");
+		lines.push(`Note: the name matched multiple commands; documentation for all of them is included.`);
+	}
+	for (const m of blocks) {
+		const e = m.entry;
+		const scope = e.scope ? ` (${e.scope})` : "";
+		lines.push("");
+		lines.push(`--- ${invocation(e)} — ${e.source}${scope} · source: ${e.path} ---`);
+		lines.push(m.body?.trim() || e.description || "(no documentation available)");
+	}
+	lines.push("");
+	lines.push(`User's request: ${question}`);
+	return lines.join("\n");
+}
+
 export function formatSuggestions(query: string, names: string[]): string {
 	const head = `No command found for "${query}".`;
 	if (names.length === 0) return `${head} Run /help to see all commands.`;
