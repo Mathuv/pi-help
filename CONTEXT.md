@@ -29,8 +29,12 @@ Query normalization strips the leading `/` only; `skill:` is a source qualifier 
 _Avoid_: Stripping source qualifiers, arbitrary winner-picking on genuine ties, leaking the sibling hint into model-visible prompts
 
 **List Filter**:
-Live, man-style narrowing of the Help Overlay list via `/`; membership is decided by case-insensitive substring over name and description, with a bigram typo-rescue on names only when substring finds nothing — so the list always stays explainable by the text typed. List overlay only; the detail view is a document, not a directory.
-_Avoid_: Fuzzy-only membership, filtering inside the detail view
+Live, man-style narrowing of the Help Overlay list via `/`; membership is decided by case-insensitive substring over name, description, and Package Origin searchable tail, with a bigram typo-rescue on names only when substring finds nothing — so the list always stays explainable by the text typed. Rows show the raw Package Origin tag only while a filter is active, keeping membership visible. List overlay only; the detail view is a document, not a directory.
+_Avoid_: Fuzzy-only membership, filtering inside the detail view, origin tags on the unfiltered list
+
+**Package Origin**:
+The raw package source string a command was installed from (`git:…`, `npm:…`, or a local path), present only for commands with origin `package`; displayed raw (scheme kept, so git vs npm stays visible) in the detail header and Help Ask block headers. Only its searchable tail — scheme, host, and path noise dropped (`git:github.com/adtrac/superpowers` → `adtrac/superpowers`, `../../devel/pi-help` → `pi-help`) — participates in the List Filter, so generic parts like `git` or `github.com` never act as filter words. Synthetic origin markers (`auto`, `cli`, `local`) are never displayed or searchable.
+_Avoid_: Stripping the scheme from display, matching generic scheme/host parts, matching synthetic origin markers, origin-based name resolution
 
 **Width Safety**:
 Every line the overlay returns passes through pi-tui's ANSI-aware `truncateToWidth` at the single render exit point, because pi-tui hard-errors on lines wider than the terminal (narrow split panes).
