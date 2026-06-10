@@ -1,2 +1,100 @@
 # pi-help
-The missing `/help` command for Pi
+
+The missing `/help` command for [Pi](https://pi.dev) — discover and learn the slash commands available in your Pi config, unix `--help` style.
+
+Pi configs accumulate slash commands from many places: extensions you write, packages you install, prompt templates, and skills. In a team environment, with a shared Pi config,  new team members (and future you) have no helpful way to see what's available or how to use any of it. `pi-help` fixes that with two commands:
+
+- **`/help`** — list every slash command in the current config, grouped by source, with one-line descriptions
+- **`/help <name>`** — full documentation for one command: usage, workflow, examples
+
+## Install
+
+```bash
+pi install git:github.com/Mathuv/pi-help
+```
+
+That's it — `/help` is available in your next Pi session.
+
+## Usage
+
+### List all commands
+
+```
+/help
+```
+
+Opens a scrollable overlay grouped into three sections:
+
+| Section | Source | Invoked as |
+|---|---|---|
+| Extension commands | Extensions (yours + installed packages) | `/name` |
+| Prompts | Prompt templates (`prompts/*.md`) | `/name` |
+| Skills | Skills (yours + installed packages) | `/skill:name` |
+
+### Drill into one command
+
+```
+/help commit
+/help review
+/help context_usage
+```
+
+The argument is forgiving:
+
+- `commit`, `/commit`, and `skill:commit` all work (matching is case-insensitive)
+- **Tab completion** — type `/help rev<tab>` to complete from all known command names
+- **Prefix/substring fallback** — `/help usage` finds `context_usage`
+- **Did you mean** — `/help commt` suggests `/commit`
+- **Name collisions** — if a skill and an extension command share a name, both are shown stacked
+
+What you see depends on where the command comes from:
+
+- **Skills & prompts** — the full markdown documentation (SKILL.md / prompt file body, frontmatter stripped), rendered with formatting
+- **Extension commands** — the registered description, plus the doc comment from the top of the extension source file when present
+
+### Keys (overlay)
+
+| Key | Action |
+|---|---|
+| `↑`/`↓` or `k`/`j` | Scroll line |
+| `PgUp`/`PgDn` or `Space` | Scroll page |
+| `g` / `G` | Jump to top / bottom |
+| `Esc` or `q` | Close |
+
+The overlay is ephemeral — nothing is added to your session transcript or model context, so browsing help costs zero tokens.
+
+### Headless / scripted use
+
+In non-interactive mode (`pi -p`, RPC), `/help` emits its output as a plain-text custom message (`customType: "help"`) without triggering an agent turn:
+
+```bash
+pi --mode json -p --no-session "/help"
+pi --mode json -p --no-session "/help commit"
+```
+
+## What's NOT listed (by design)
+
+Pi's **built-in** commands (`/model`, `/settings`, `/fork`, …) don't appear, because Pi doesn't expose them to extensions — any hardcoded list would silently go stale across Pi releases. For built-ins, use `/hotkeys` or see the [Pi docs](https://pi.dev/docs).
+
+## How it works
+
+Everything comes live from `pi.getCommands()` — the same registry Pi uses for command dispatch. No filesystem scanning, no configuration: install a new package and its commands appear in `/help` immediately.
+
+## Development
+
+```
+extensions/help/
+├── index.ts       # extension shell: command, completions, TUI overlay, headless fallback
+├── lib.ts         # pure logic (grouping, name resolution, formatting) — no pi imports
+└── lib.test.ts    # unit tests
+```
+
+```bash
+npm test     # node --test, no dependencies needed (Node ≥ 22)
+```
+
+Design notes live in [CONTEXT.md](./CONTEXT.md) and [docs/](./docs/).
+
+## License
+
+[MIT](./LICENSE)
