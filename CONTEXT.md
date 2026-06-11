@@ -40,6 +40,22 @@ _Avoid_: Stripping the scheme from display, matching generic scheme/host parts, 
 Every line the overlay returns passes through pi-tui's ANSI-aware `truncateToWidth` at the single render exit point, because pi-tui hard-errors on lines wider than the terminal (narrow split panes).
 _Avoid_: Character-count truncation of styled text, unbounded footer/path lines
 
+**Startup Overhead**:
+What pi-help adds to pi's startup: the delta between two otherwise-identical startups, with and without pi-help, on the same workload — attributed to the extension-load phase, never inferred from absolute totals.
+_Avoid_: Quoting absolute startup times as overhead, single-run numbers
+
+**Feature Cost**:
+The extra time and peak memory of a run that actually exercises a `/help` feature, relative to a startup-only run of the same configuration. Help Ask is out of scope: its cost belongs to the model, not the extension.
+_Avoid_: Counting model latency or tokens as extension cost
+
+**Isolated Mode**:
+The benchmark baseline where discovery is disabled and pi-help is the only extension present — the reproducible numbers published to users.
+_Avoid_: Publishing numbers measured inside a personal config
+
+**Full-Config Mode**:
+The benchmark mode where pi-help is toggled inside a disposable copy of a real, fully-loaded personal config — a sanity check that Isolated Mode numbers survive contact with a busy setup. Its numbers are environment-specific.
+_Avoid_: Treating full-config numbers as portable, mutating the live config
+
 ## Example Dialogue
 
 Dev: "Why doesn't `/help model` show anything for the built-in /model command?"

@@ -110,6 +110,16 @@ Pi's **built-in** commands (`/model`, `/settings`, `/fork`, …) don't appear, b
 
 Everything comes live from `pi.getCommands()` — the same registry Pi uses for command dispatch. No filesystem scanning, no configuration: install a new package and its commands appear in `/help` immediately.
 
+## Performance
+
+pi-help costs effectively nothing when you're not using it, and almost nothing when you are:
+
+- **Startup**: +2 ms with pi-help as the only extension (+1 ms TUI init); ~8 ms loaded as one package among ~20.
+- **Memory**: no measurable difference — deltas sit below Node's run-to-run GC noise.
+- **Using `/help`**: list and detail render within single-digit milliseconds of a bare startup, with no agent turn and zero model tokens. Only the explicit ask form (`/help <name> <question>`) spends tokens — by design.
+
+Measured on pi 0.78.0 with the repeatable benchmark in [`scripts/bench.py`](./scripts/bench.py); full methodology, tables, and limitations in [docs/benchmark.md](./docs/benchmark.md).
+
 ## Development
 
 ```
