@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import {
 	groupEntries,
 	resolveName,
+	formatRelatedHint,
 	stripFrontmatter,
 	extractHeaderComment,
 	filterEntries,
 	formatList,
 	formatDetail,
+	searchableOrigin,
 	suggestClosest,
 	splitAskArgs,
 	isAskQuestion,
@@ -18,6 +20,14 @@ import {
 
 function cmd(name: string, source: string, description?: string, path = `/fake/${name}.md`): HelpCommand {
 	return { name, description, source, sourceInfo: { path, scope: "user" } };
+}
+
+function pkgCmd(name: string, source: string, pkg: string, description?: string, path = `/fake/${name}.md`): HelpCommand {
+	return { name, description, source, sourceInfo: { path, scope: "user", source: pkg, origin: "package" } };
+}
+
+function topLevelCmd(name: string, source: string, description?: string): HelpCommand {
+	return { name, description, source, sourceInfo: { path: `/fake/${name}.md`, scope: "user", source: "auto", origin: "top-level" } };
 }
 
 const SAMPLE: HelpCommand[] = [
@@ -69,6 +79,39 @@ describe("groupEntries", () => {
 		const g = groupEntries([cmd("weird", "builtin")]);
 		assert.deepEqual([g.extensions.length, g.prompts.length, g.skills.length], [0, 0, 0]);
 	});
+
+	test("package-origin command carries its raw package source string", () => {
+		const g = groupEntries([pkgCmd("skill:brainstorming", "skill", "git:github.com/adtrac/superpowers")]);
+		assert.equal(g.skills[0]?.packageOrigin, "git:github.com/adtrac/superpowers");
+	});
+
+	test("synthetic top-level origin yields no packageOrigin", () => {
+		const g = groupEntries([topLevelCmd("skill:commit", "skill", "Commit msg generator")]);
+		assert.equal(g.skills[0]?.packageOrigin, undefined);
+	});
+
+	test("missing origin metadata yields no packageOrigin", () => {
+		const g = groupEntries([cmd("review", "extension", "Review changes")]);
+		assert.equal(g.extensions[0]?.packageOrigin, undefined);
+	});
+});
+
+describe("searchableOrigin", () => {
+	test("git origin drops scheme and host, keeps owner/repo", () => {
+		assert.equal(searchableOrigin("git:github.com/adtrac/superpowers"), "adtrac/superpowers");
+	});
+
+	test("scoped npm origin drops scheme only", () => {
+		assert.equal(searchableOrigin("npm:@ff-labs/pi-fff"), "@ff-labs/pi-fff");
+	});
+
+	test("unscoped npm origin drops scheme only", () => {
+		assert.equal(searchableOrigin("npm:pi-markdown-preview"), "pi-markdown-preview");
+	});
+
+	test("local path origin reduces to basename", () => {
+		assert.equal(searchableOrigin("../../devel/pi-help"), "pi-help");
+	});
 });
 
 describe("resolveName", () => {
@@ -83,7 +126,7 @@ describe("resolveName", () => {
 		}
 	});
 
-	test("normalizes leading slash and skill: prefix", () => {
+	test("normalizes leading slash and whitespace; skill: qualifier resolves", () => {
 		for (const q of ["/commit", "skill:commit", "/skill:commit", "  commit "]) {
 			const r = resolveName(q, groups);
 			assert.equal(r.kind, "match", `query ${JSON.stringify(q)}`);
@@ -95,13 +138,41 @@ describe("resolveName", () => {
 		assert.equal(r.kind, "match");
 	});
 
-	test("collision returns all matching sources", () => {
+	test("literal registry name outranks bare-name collision, sibling goes to related", () => {
 		const withCollision = groupEntries([...SAMPLE, cmd("commit", "prompt", "Commit prompt", "/prompts/commit.md")]);
 		const r = resolveName("commit", withCollision);
 		assert.equal(r.kind, "match");
 		if (r.kind === "match") {
-			assert.equal(r.entries.length, 2);
-			assert.deepEqual(r.entries.map((e) => e.source).sort(), ["prompt", "skill"]);
+			assert.equal(r.entries.length, 1);
+			assert.equal(r.entries[0]?.source, "prompt");
+			assert.deepEqual(r.related?.map((e) => e.name), ["skill:commit"]);
+		}
+	});
+
+	test("skill: qualifier matches only the skill on collision", () => {
+		const withCollision = groupEntries([...SAMPLE, cmd("commit", "prompt", "Commit prompt", "/prompts/commit.md")]);
+		const r = resolveName("skill:commit", withCollision);
+		assert.equal(r.kind, "match");
+		if (r.kind === "match") {
+			assert.deepEqual(r.entries.map((e) => e.name), ["skill:commit"]);
+			assert.equal(r.related, undefined);
+		}
+	});
+
+	test("sole-source bare name resolves without related", () => {
+		const r = resolveName("commit", groups);
+		assert.equal(r.kind, "match");
+		if (r.kind === "match") {
+			assert.equal(r.entries[0]?.name, "skill:commit");
+			assert.equal(r.related, undefined);
+		}
+	});
+
+	test("skill: qualified prefix falls back on the full registry name", () => {
+		const r = resolveName("skill:summ", groups);
+		assert.equal(r.kind, "match");
+		if (r.kind === "match") {
+			assert.deepEqual(r.entries.map((e) => e.name), ["skill:summarize"]);
 		}
 	});
 
@@ -135,6 +206,27 @@ describe("resolveName", () => {
 		if (r.kind === "suggestions") {
 			assert.equal(r.names.length, 0);
 		}
+	});
+});
+
+describe("formatRelatedHint", () => {
+	const groups = groupEntries(SAMPLE);
+	const commit = groups.skills.find((e) => e.bareName === "commit")!;
+	const review = groups.extensions.find((e) => e.bareName === "review")!;
+
+	test("no related entries yields null", () => {
+		assert.equal(formatRelatedHint([]), null);
+		assert.equal(formatRelatedHint(undefined), null);
+	});
+
+	test("single related entry names its invocation and lookup query", () => {
+		assert.equal(formatRelatedHint([commit]), "also matches: /skill:commit — try /help skill:commit");
+	});
+
+	test("multiple related entries are all listed", () => {
+		const out = formatRelatedHint([commit, review]);
+		assert.match(out!, /\/skill:commit/);
+		assert.match(out!, /\/help review/);
 	});
 });
 
@@ -223,6 +315,44 @@ describe("filterEntries", () => {
 		assert.deepEqual(allNames(r.groups), []);
 	});
 
+	describe("package origin matching", () => {
+		const pkgGroups = groupEntries([
+			pkgCmd("skill:brainstorming", "skill", "git:github.com/adtrac/superpowers", "Turn ideas into designs"),
+			pkgCmd("preview", "extension", "npm:pi-markdown-preview", "Render markdown"),
+			pkgCmd("help", "extension", "../../devel/pi-help", "List commands"),
+			topLevelCmd("skill:commit", "skill", "Commit msg generator"),
+		]);
+
+		test("origin tail matches: repo name and owner filter the package's commands", () => {
+			for (const q of ["superpowers", "adtrac", "adtrac/superpowers"]) {
+				const r = filterEntries(pkgGroups, q);
+				assert.equal(r.mode, "substring", q);
+				assert.deepEqual(r.groups.skills.map((e) => e.bareName), ["brainstorming"], q);
+			}
+		});
+
+		test("generic scheme and host parts never act as filter words", () => {
+			// nothing in this sample's names/descriptions contains these, so a
+			// substring match could only come from the raw origin — which must
+			// not happen; the names-only fuzzy typo-rescue may still fire
+			for (const q of ["git:", "github", "github.com", "devel", "../"]) {
+				const r = filterEntries(pkgGroups, q);
+				assert.ok(r.count === 0 || r.mode === "fuzzy", `${q} matched via origin`);
+			}
+		});
+
+		test("local path package matches by basename", () => {
+			const r = filterEntries(pkgGroups, "pi-help");
+			assert.equal(r.mode, "substring");
+			assert.deepEqual(r.groups.extensions.map((e) => e.bareName), ["help"]);
+		});
+
+		test("synthetic origin marker is not searchable", () => {
+			const r = filterEntries(pkgGroups, "auto");
+			assert.equal(r.groups.skills.some((e) => e.bareName === "commit"), false);
+		});
+	});
+
 	function allNames(g: HelpGroups): string[] {
 		return [...g.extensions, ...g.prompts, ...g.skills].map((e) => e.bareName);
 	}
@@ -298,6 +428,17 @@ describe("buildAskPrompt", () => {
 	test("single match has no ambiguity note", () => {
 		const out = buildAskPrompt([{ entry: commit, body: "body" }], "onboard me", "commit onboard me");
 		assert.doesNotMatch(out, /multiple commands/);
+	});
+
+	test("package-origin entry's block header carries the raw origin", () => {
+		const e = groupEntries([pkgCmd("skill:brainstorming", "skill", "git:github.com/adtrac/superpowers")]).skills[0]!;
+		const out = buildAskPrompt([{ entry: e, body: "body" }], "explain in detail", "skill:brainstorming explain in detail");
+		assert.match(out, /--- \/skill:brainstorming — skill \(user\) · git:github\.com\/adtrac\/superpowers · source: /);
+	});
+
+	test("top-level entry's block header has no origin segment", () => {
+		const out = buildAskPrompt([{ entry: commit, body: "body" }], "onboard me", "commit onboard me");
+		assert.match(out, /--- \/skill:commit — skill \(user\) · source: /);
 	});
 
 	test("collision includes all blocks and an ambiguity note", () => {
@@ -423,5 +564,16 @@ describe("formatDetail", () => {
 		assert.match(out, /skill body/);
 		assert.match(out, /Review changes/);
 		assert.ok(out.indexOf("skill body") < out.indexOf("Review changes"));
+	});
+
+	test("package-origin entry shows the raw origin in the header line", () => {
+		const e = groupEntries([pkgCmd("skill:brainstorming", "skill", "git:github.com/adtrac/superpowers")]).skills[0]!;
+		const out = formatDetail([{ entry: e, body: "body" }]);
+		assert.match(out, /\/skill:brainstorming — skill \(user\) · git:github\.com\/adtrac\/superpowers/);
+	});
+
+	test("top-level entry header has no origin segment", () => {
+		const out = formatDetail([{ entry: commit, body: "body" }]);
+		assert.match(out, /\/skill:commit — skill \(user\)\n/);
 	});
 });
