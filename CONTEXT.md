@@ -21,16 +21,20 @@ An ephemeral TUI view that adds nothing to the transcript or model context; head
 _Avoid_: Triggering agent turns, persisting help output
 
 **Help Ask**:
-Words after the command name (`/help <name> <question>`) are an explicit opt-in to a real agent turn: the question, grounded in that command's documentation, is handed to the model. The question must be at least two words — a single stray token shows the detail view with a hint instead, so a typo or habit never silently costs a paid turn. An unresolvable name yields suggestions, never a turn; name collisions ground the agent in all matches.
+Words after the command name (`/help <name> <question>`) are an explicit opt-in to a real agent turn: the question, grounded in that command's documentation, is handed to the model. The question must be at least two words — a single stray token shows the detail view with a hint instead, so a typo or habit never silently costs a paid turn. An unresolvable name yields suggestions, never a turn; a literal registry-name match grounds the agent in that command alone (sibling hint stays out of the prompt), while genuine ties ground it in all matches.
 _Avoid_: Turns triggered by typos or stray words, silent winner-picking, answering from invented documentation
 
 **Name Resolution**:
-Query normalization strips `/` and `skill:`; exact matches across all sources are shown stacked on collision, then prefix/substring fallback, then bigram-based did-you-mean suggestions.
-_Avoid_: Silent winner-picking on name collisions
+Query normalization strips the leading `/` only; `skill:` is a source qualifier and part of the skill's registry name, never stripped. A query equal to a literal registry name resolves to exactly that command — `iterate` is the extension's literal name, `skill:iterate` the skill's — with a UI-only "also matches" hint for same-bare-name siblings it shadowed. Bare names with no literal match fall back to bare-name exact (stacked on ties), then prefix/substring over both name forms, then bigram-based did-you-mean suggestions. Autocomplete inserts the full registry name so a menu selection is always unambiguous.
+_Avoid_: Stripping source qualifiers, arbitrary winner-picking on genuine ties, leaking the sibling hint into model-visible prompts
 
 **List Filter**:
-Live, man-style narrowing of the Help Overlay list via `/`; membership is decided by case-insensitive substring over name and description, with a bigram typo-rescue on names only when substring finds nothing — so the list always stays explainable by the text typed. List overlay only; the detail view is a document, not a directory.
-_Avoid_: Fuzzy-only membership, filtering inside the detail view
+Live, man-style narrowing of the Help Overlay list via `/`; membership is decided by case-insensitive substring over name, description, and Package Origin searchable tail, with a bigram typo-rescue on names only when substring finds nothing — so the list always stays explainable by the text typed. Rows show the raw Package Origin tag only while a filter is active, keeping membership visible. List overlay only; the detail view is a document, not a directory.
+_Avoid_: Fuzzy-only membership, filtering inside the detail view, origin tags on the unfiltered list
+
+**Package Origin**:
+The raw package source string a command was installed from (`git:…`, `npm:…`, or a local path), present only for commands with origin `package`; displayed raw (scheme kept, so git vs npm stays visible) in the detail header and Help Ask block headers. Only its searchable tail — scheme, host, and path noise dropped (`git:github.com/adtrac/superpowers` → `adtrac/superpowers`, `../../devel/pi-help` → `pi-help`) — participates in the List Filter, so generic parts like `git` or `github.com` never act as filter words. Synthetic origin markers (`auto`, `cli`, `local`) are never displayed or searchable.
+_Avoid_: Stripping the scheme from display, matching generic scheme/host parts, matching synthetic origin markers, origin-based name resolution
 
 **Width Safety**:
 Every line the overlay returns passes through pi-tui's ANSI-aware `truncateToWidth` at the single render exit point, because pi-tui hard-errors on lines wider than the terminal (narrow split panes).
