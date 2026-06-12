@@ -24,6 +24,10 @@ _Avoid_: Triggering agent turns, persisting help output
 Query normalization strips `/` and `skill:`; exact matches across all sources are shown stacked on collision, then prefix/substring fallback, then bigram-based did-you-mean suggestions.
 _Avoid_: Silent winner-picking on name collisions
 
+**List Filter**:
+Live, man-style narrowing of the Help Overlay list via `/`; membership is decided by case-insensitive substring over name and description, with a bigram typo-rescue on names only when substring finds nothing — so the list always stays explainable by the text typed. List overlay only; the detail view is a document, not a directory.
+_Avoid_: Fuzzy-only membership, filtering inside the detail view
+
 **Width Safety**:
 Every line the overlay returns passes through pi-tui's ANSI-aware `truncateToWidth` at the single render exit point, because pi-tui hard-errors on lines wider than the terminal (narrow split panes).
 _Avoid_: Character-count truncation of styled text, unbounded footer/path lines

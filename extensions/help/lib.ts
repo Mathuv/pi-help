@@ -87,6 +87,17 @@ export function resolveName(query: string, groups: HelpGroups): Resolution {
 	};
 }
 
+/** Bigram Dice similarity in [0, 1]; tolerant of typos, weak below ~3 chars. */
+const FUZZY_MIN_SCORE = 0.4;
+
+function diceScore(query: string, name: string): number {
+	const q = bigrams(query.toLowerCase());
+	const n = bigrams(name.toLowerCase());
+	let shared = 0;
+	for (const b of q) if (n.has(b)) shared++;
+	return q.size + n.size > 0 ? (2 * shared) / (q.size + n.size) : 0;
+}
+
 /**
  * Closest-name suggestions for "did you mean" output.
  * Called only when exact/prefix/substring matching all failed,
@@ -94,20 +105,48 @@ export function resolveName(query: string, groups: HelpGroups): Resolution {
  * Returns at most 3 names, best first; empty when nothing is plausibly close.
  */
 export function suggestClosest(query: string, names: string[]): string[] {
-	const MIN_SCORE = 0.4;
-	const q = bigrams(query.toLowerCase());
 	return names
-		.map((name) => {
-			const n = bigrams(name.toLowerCase());
-			let shared = 0;
-			for (const b of q) if (n.has(b)) shared++;
-			const score = q.size + n.size > 0 ? (2 * shared) / (q.size + n.size) : 0;
-			return { name, score };
-		})
-		.filter((s) => s.score >= MIN_SCORE)
+		.map((name) => ({ name, score: diceScore(query, name) }))
+		.filter((s) => s.score >= FUZZY_MIN_SCORE)
 		.sort((a, b) => b.score - a.score)
 		.slice(0, 3)
 		.map((s) => s.name);
+}
+
+export type FilterMode = "all" | "substring" | "fuzzy";
+
+export interface FilterResult {
+	groups: HelpGroups;
+	mode: FilterMode;
+	count: number;
+}
+
+/**
+ * Live list filter for the help overlay (man-style `/` search).
+ * Substring over name + description decides membership; the bigram
+ * typo-rescue (names only) fires only when substring finds nothing,
+ * so list membership always stays explainable by the text typed.
+ */
+export function filterEntries(groups: HelpGroups, query: string): FilterResult {
+	const q = query.trim().toLowerCase();
+	if (!q) return { groups, mode: "all", count: allEntries(groups).length };
+
+	const bySubstring = (e: HelpEntry) =>
+		e.bareName.toLowerCase().includes(q) || e.description.toLowerCase().includes(q);
+	const substring = filterGroups(groups, bySubstring);
+	if (substring.count > 0) return { ...substring, mode: "substring" };
+
+	const fuzzy = filterGroups(groups, (e) => diceScore(q, e.bareName) >= FUZZY_MIN_SCORE);
+	return { ...fuzzy, mode: fuzzy.count > 0 ? "fuzzy" : "substring" };
+}
+
+function filterGroups(groups: HelpGroups, keep: (e: HelpEntry) => boolean): { groups: HelpGroups; count: number } {
+	const filtered: HelpGroups = {
+		extensions: groups.extensions.filter(keep),
+		prompts: groups.prompts.filter(keep),
+		skills: groups.skills.filter(keep),
+	};
+	return { groups: filtered, count: allEntries(filtered).length };
 }
 
 function bigrams(s: string): Set<string> {

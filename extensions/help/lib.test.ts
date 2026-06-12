@@ -5,6 +5,7 @@ import {
 	resolveName,
 	stripFrontmatter,
 	extractHeaderComment,
+	filterEntries,
 	formatList,
 	formatDetail,
 	suggestClosest,
@@ -148,6 +149,80 @@ describe("suggestClosest", () => {
 	test("nothing similar yields empty list", () => {
 		assert.deepEqual(suggestClosest("qqqq", names), []);
 	});
+});
+
+describe("filterEntries", () => {
+	const groups = groupEntries(SAMPLE);
+	const total = SAMPLE.length;
+
+	test("empty query returns everything in mode all", () => {
+		const r = filterEntries(groups, "");
+		assert.equal(r.mode, "all");
+		assert.equal(r.count, total);
+		assert.deepEqual(r.groups, groups);
+	});
+
+	test("whitespace-only query is treated as empty", () => {
+		const r = filterEntries(groups, "   ");
+		assert.equal(r.mode, "all");
+		assert.equal(r.count, total);
+	});
+
+	test("matches on name substring", () => {
+		const r = filterEntries(groups, "commit");
+		assert.equal(r.mode, "substring");
+		assert.deepEqual(r.groups.skills.map((e) => e.bareName), ["commit"]);
+		assert.equal(r.count, 1);
+	});
+
+	test("matches on description substring", () => {
+		const r = filterEntries(groups, "loaded context");
+		assert.equal(r.mode, "substring");
+		assert.deepEqual(r.groups.extensions.map((e) => e.bareName), ["context_usage"]);
+		assert.equal(r.count, 1);
+	});
+
+	test("matching is case-insensitive both ways", () => {
+		assert.equal(filterEntries(groups, "COMMIT").count, 1);
+		assert.equal(filterEntries(groups, "summarize session").count, 1);
+	});
+
+	test("single-character query filters via substring", () => {
+		const r = filterEntries(groups, "z");
+		assert.equal(r.mode, "substring");
+		// "summarize" name and "Summarize session" description
+		assert.deepEqual(r.groups.skills.map((e) => e.bareName), ["summarize"]);
+	});
+
+	test("group structure is preserved across sources", () => {
+		// "plan" hits prompt name; "Plan workflow" description too
+		const r = filterEntries(groups, "plan");
+		assert.equal(r.groups.extensions.length, 0);
+		assert.deepEqual(r.groups.prompts.map((e) => e.bareName), ["interactive-plan"]);
+		assert.equal(r.groups.skills.length, 0);
+	});
+
+	test("typo with no substring hit falls back to fuzzy on names", () => {
+		const r = filterEntries(groups, "commt");
+		assert.equal(r.mode, "fuzzy");
+		assert.ok(r.groups.skills.some((e) => e.bareName === "commit"));
+		assert.equal(r.count, r.groups.extensions.length + r.groups.prompts.length + r.groups.skills.length);
+	});
+
+	test("fuzzy never fires when a substring match exists", () => {
+		const r = filterEntries(groups, "com");
+		assert.equal(r.mode, "substring");
+	});
+
+	test("hopeless query yields zero matches, not fuzzy noise", () => {
+		const r = filterEntries(groups, "qqqq");
+		assert.equal(r.count, 0);
+		assert.deepEqual(allNames(r.groups), []);
+	});
+
+	function allNames(g: HelpGroups): string[] {
+		return [...g.extensions, ...g.prompts, ...g.skills].map((e) => e.bareName);
+	}
 });
 
 describe("stripFrontmatter", () => {

@@ -31,6 +31,13 @@ Opens a scrollable overlay grouped into three sections:
 | Prompts | Prompt templates (`prompts/*.md`) | `/name` |
 | Skills | Skills (yours + installed packages) | `/skill:name` |
 
+### Search the list
+
+Press `/` in the list overlay (man-page style) and start typing — the list narrows live, matching against command **names and descriptions** (case-insensitive substring). If nothing contains what you typed, a typo-tolerant fallback kicks in (`/commt` still finds `commit`, marked `~fuzzy`).
+
+- `Enter` keeps the filter and returns the normal keys (`j`/`k`, `q`, …)
+- `Esc` while typing abandons the search; `Esc` on a kept filter clears it; `Esc` on the full list closes the overlay
+
 ### Drill into one command
 
 ```
@@ -59,7 +66,8 @@ What you see depends on where the command comes from:
 | `↑`/`↓` or `k`/`j` | Scroll line |
 | `PgUp`/`PgDn` or `Space` | Scroll page |
 | `g` / `G` | Jump to top / bottom |
-| `Esc` or `q` | Close |
+| `/` | Search the list (list overlay only) |
+| `Esc` or `q` | Close (`Esc` first clears an active filter) |
 
 The overlay is ephemeral — nothing is added to your session transcript or model context, so browsing help costs zero tokens.
 
