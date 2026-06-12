@@ -9,6 +9,9 @@ import {
 	formatList,
 	formatDetail,
 	suggestClosest,
+	splitAskArgs,
+	isAskQuestion,
+	buildAskPrompt,
 	type HelpCommand,
 	type HelpGroups,
 } from "./lib.ts";
@@ -223,6 +226,93 @@ describe("filterEntries", () => {
 	function allNames(g: HelpGroups): string[] {
 		return [...g.extensions, ...g.prompts, ...g.skills].map((e) => e.bareName);
 	}
+});
+
+describe("splitAskArgs", () => {
+	test("no trailing words yields empty question", () => {
+		assert.deepEqual(splitAskArgs("review"), { name: "review", question: "" });
+	});
+
+	test("first token is name, rest is question", () => {
+		assert.deepEqual(splitAskArgs("review onboard me with this command"), {
+			name: "review",
+			question: "onboard me with this command",
+		});
+	});
+
+	test("extra whitespace is trimmed and collapsed at the split", () => {
+		assert.deepEqual(splitAskArgs("  review   give a walkthrough  "), {
+			name: "review",
+			question: "give a walkthrough",
+		});
+	});
+
+	test("empty input yields empty name and question", () => {
+		assert.deepEqual(splitAskArgs("   "), { name: "", question: "" });
+	});
+});
+
+describe("isAskQuestion", () => {
+	test("empty question is not an ask", () => {
+		assert.equal(isAskQuestion(""), false);
+	});
+
+	test("single word is not an ask", () => {
+		assert.equal(isAskQuestion("push"), false);
+	});
+
+	test("two words are an ask", () => {
+		assert.equal(isAskQuestion("onboard me"), true);
+	});
+
+	test("many words are an ask", () => {
+		assert.equal(isAskQuestion("give a quick walkthrough of the command"), true);
+	});
+});
+
+describe("buildAskPrompt", () => {
+	const groups = groupEntries(SAMPLE);
+	const commit = groups.skills.find((e) => e.bareName === "commit")!;
+	const review = groups.extensions.find((e) => e.bareName === "review")!;
+
+	test("includes raw invocation, docs, source path, and the request", () => {
+		const out = buildAskPrompt([{ entry: commit, body: "# Commit skill\nUsage..." }], "onboard me", "commit onboard me");
+		assert.match(out, /\/help commit onboard me/);
+		assert.match(out, /\/skill:commit/);
+		assert.match(out, /# Commit skill/);
+		assert.match(out, /\/skills\/commit\/SKILL\.md/);
+		assert.match(out, /User's request: onboard me/);
+	});
+
+	test("falls back to description when body is null", () => {
+		const out = buildAskPrompt([{ entry: review, body: null }], "walk me through", "review walk me through");
+		assert.match(out, /Review changes/);
+	});
+
+	test("falls back to placeholder when body and description are missing", () => {
+		const bare = groupEntries([cmd("bare", "extension", undefined, "/ext/bare.ts")]).extensions[0]!;
+		const out = buildAskPrompt([{ entry: bare, body: null }], "explain this", "bare explain this");
+		assert.match(out, /\(no documentation available\)/);
+	});
+
+	test("single match has no ambiguity note", () => {
+		const out = buildAskPrompt([{ entry: commit, body: "body" }], "onboard me", "commit onboard me");
+		assert.doesNotMatch(out, /multiple commands/);
+	});
+
+	test("collision includes all blocks and an ambiguity note", () => {
+		const out = buildAskPrompt(
+			[
+				{ entry: commit, body: "skill body" },
+				{ entry: review, body: null },
+			],
+			"onboard me",
+			"commit onboard me",
+		);
+		assert.match(out, /multiple commands/);
+		assert.match(out, /skill body/);
+		assert.match(out, /Review changes/);
+	});
 });
 
 describe("stripFrontmatter", () => {
